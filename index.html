@@ -76,6 +76,17 @@
     font-size: 13px;
   }
   input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  #syncForm input[type="text"], #syncForm input[type="password"] {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+  }
+  #syncForm input:focus { outline: none; border-color: var(--accent); }
   .add-btn {
     display: flex;
     align-items: center;
@@ -363,6 +374,26 @@
       Cài đặt app
     </button>
 
+    <div class="card" id="syncCard">
+      <div class="notes-header">
+        <div class="chart-title" style="margin-bottom:0;">ĐỒNG BỘ NHIỀU THIẾT BỊ (QUA GITHUB)</div>
+        <button class="add-btn" id="syncToggleBtn" style="padding:0 10px; height:26px;">Cài đặt</button>
+      </div>
+      <div id="syncStatus" style="font-size:11px; color:var(--text-dim); margin-bottom:8px;"></div>
+      <div id="syncForm" style="display:none;">
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
+          <input type="text" id="syncOwner" placeholder="Tên tài khoản GitHub (vd: LQL130)" />
+          <input type="text" id="syncRepo" placeholder="Tên repo (vd: C-n-)" />
+          <input type="password" id="syncToken" placeholder="Personal Access Token (github_pat_...)" />
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="add-btn" id="syncSaveBtn">Kết nối</button>
+          <button class="add-btn" id="syncClearBtn" style="border-color:var(--danger); color:var(--danger);">Ngắt kết nối</button>
+        </div>
+        <p class="footnote" style="margin-top:8px;">Token chỉ lưu trên trình duyệt này, dùng để đọc/ghi 1 file dữ liệu trong repo của bạn. Nhập cùng thông tin này ở mọi thiết bị muốn đồng bộ.</p>
+      </div>
+    </div>
+
     <div id="warnBar" class="warn-bar" style="display:none;">Không thể lưu dữ liệu trên trình duyệt này.</div>
 
     <div class="add-row">
@@ -452,10 +483,71 @@
   let editingHabitId = null;
   const notifiedToday = new Set();
 
-  // Lưu qua window.storage khi chạy trong Claude (đồng bộ nhiều thiết bị);
-  // tự chuyển sang localStorage khi mở như app cài đặt độc lập (chỉ lưu trên máy đó).
+  // ---- Đồng bộ qua GitHub (dùng chính repo của bạn làm nơi lưu dữ liệu chung) ----
+  const GH_CONFIG_KEY = "gh-sync-config";
+  const ghShaCache = {};
+  function ghConfigGet() {
+    try {
+      const raw = localStorage.getItem(GH_CONFIG_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function ghConfigSet(cfg) {
+    try { localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) {}
+  }
+  function ghConfigClear() {
+    try { localStorage.removeItem(GH_CONFIG_KEY); } catch (e) {}
+  }
+  function ghHeaders(cfg) {
+    return {
+      Authorization: `Bearer ${cfg.token}`,
+      Accept: "application/vnd.github+json"
+    };
+  }
+  async function ghGet(key) {
+    const cfg = ghConfigGet();
+    if (!cfg) return null;
+    const path = `sync-data/${key}.json`;
+    try {
+      const res = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}`, { headers: ghHeaders(cfg) });
+      if (res.status === 404) { ghShaCache[key] = null; return null; }
+      if (!res.ok) return null;
+      const json = await res.json();
+      ghShaCache[key] = json.sha;
+      return decodeURIComponent(escape(atob(json.content.replace(/\n/g, ""))));
+    } catch (e) { return null; }
+  }
+  async function ghPut(key, value) {
+    const cfg = ghConfigGet();
+    if (!cfg) return false;
+    const path = `sync-data/${key}.json`;
+    const encoded = btoa(unescape(encodeURIComponent(value)));
+    const doPut = async (sha) => {
+      const body = { message: `cập nhật ${key}`, content: encoded, branch: cfg.branch || "main" };
+      if (sha) body.sha = sha;
+      return fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}`, {
+        method: "PUT",
+        headers: { ...ghHeaders(cfg), "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    };
+    try {
+      let res = await doPut(ghShaCache[key]);
+      if (res.status === 409 || res.status === 422) {
+        await ghGet(key);
+        res = await doPut(ghShaCache[key]);
+      }
+      if (!res.ok) return false;
+      const j = await res.json();
+      ghShaCache[key] = j.content.sha;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Lưu qua GitHub nếu đã kết nối > window.storage khi chạy trong Claude > localStorage khi chạy độc lập.
   const hasCloudStorage = typeof window.storage !== "undefined";
   async function storageGet(key) {
+    if (ghConfigGet()) return ghGet(key);
     if (hasCloudStorage) {
       try {
         const r = await window.storage.get(key, false);
@@ -465,6 +557,7 @@
     try { return localStorage.getItem(key); } catch (e) { return null; }
   }
   async function storageSet(key, value) {
+    if (ghConfigGet()) return ghPut(key, value);
     if (hasCloudStorage) {
       try {
         const r = await window.storage.set(key, value, false);
@@ -521,16 +614,24 @@
     if (notesRaw != null) {
       document.getElementById("notesArea").value = notesRaw;
     }
-    if (!hasCloudStorage) {
+    if (!hasCloudStorage && !ghConfigGet()) {
       const warn = document.getElementById("warnBar");
-      warn.textContent = "Đang chạy như app độc lập: dữ liệu chỉ lưu trên máy này, không đồng bộ thiết bị khác.";
+      warn.textContent = "Chưa kết nối đồng bộ: dữ liệu chỉ lưu trên máy này. Cài đặt đồng bộ qua GitHub ở khung phía trên để dùng chung nhiều thiết bị.";
       warn.style.display = "block";
+    } else {
+      document.getElementById("warnBar").style.display = "none";
     }
   }
   async function save() {
     const ok = await storageSet(STORE_KEY, JSON.stringify({ habits, entries }));
-    if (hasCloudStorage) {
-      document.getElementById("warnBar").style.display = ok ? "none" : "block";
+    if (hasCloudStorage || ghConfigGet()) {
+      const warn = document.getElementById("warnBar");
+      if (!ok) {
+        warn.textContent = "Lỗi khi lưu — kiểm tra lại kết nối mạng hoặc token GitHub.";
+        warn.style.display = "block";
+      } else {
+        warn.style.display = "none";
+      }
     }
   }
 
@@ -921,6 +1022,75 @@
       navigator.serviceWorker.register("service-worker.js").catch(() => { /* bỏ qua nếu không hỗ trợ */ });
     });
   }
+
+  // ---- Điều khiển form đồng bộ GitHub ----
+  const syncForm = document.getElementById("syncForm");
+  const syncStatus = document.getElementById("syncStatus");
+  const syncToggleBtn = document.getElementById("syncToggleBtn");
+  function refreshSyncStatus() {
+    const cfg = ghConfigGet();
+    if (cfg) {
+      syncStatus.innerHTML = `<span style="color:var(--good)">● Đã kết nối</span> — ${cfg.owner}/${cfg.repo}`;
+      syncToggleBtn.textContent = "Sửa";
+      document.getElementById("syncOwner").value = cfg.owner;
+      document.getElementById("syncRepo").value = cfg.repo;
+    } else {
+      syncStatus.innerHTML = `<span style="color:var(--text-faint)">● Chưa kết nối</span> — dữ liệu chỉ lưu trên máy này`;
+      syncToggleBtn.textContent = "Cài đặt";
+    }
+  }
+  syncToggleBtn.onclick = () => {
+    syncForm.style.display = syncForm.style.display === "none" ? "block" : "none";
+  };
+  document.getElementById("syncSaveBtn").onclick = async () => {
+    const owner = document.getElementById("syncOwner").value.trim();
+    const repo = document.getElementById("syncRepo").value.trim();
+    const token = document.getElementById("syncToken").value.trim();
+    if (!owner || !repo || !token) { syncStatus.textContent = "Điền đủ 3 ô ở trên trước đã."; return; }
+    syncStatus.textContent = "Đang kiểm tra kết nối...";
+    ghConfigSet({ owner, repo, token, branch: "main" });
+    const testRead = await ghGet(STORE_KEY);
+    // ghGet trả null cả khi lỗi lẫn khi file chưa tồn tại (404) — thử ghi thử để phân biệt
+    const testWrite = await storageSet(STORE_KEY, JSON.stringify({ habits, entries }));
+    if (!testWrite) {
+      syncStatus.innerHTML = `<span style="color:var(--danger)">Kết nối thất bại</span> — kiểm tra lại tên tài khoản, repo và token.`;
+      ghConfigClear();
+      return;
+    }
+    await storageSet(NOTES_KEY, document.getElementById("notesArea").value);
+    document.getElementById("syncToken").value = "";
+    syncForm.style.display = "none";
+    refreshSyncStatus();
+    await load();
+    render();
+  };
+  document.getElementById("syncClearBtn").onclick = () => {
+    ghConfigClear();
+    document.getElementById("syncToken").value = "";
+    refreshSyncStatus();
+    render();
+  };
+  refreshSyncStatus();
+
+  // tự lấy dữ liệu mới nhất mỗi 25 giây khi đã kết nối GitHub, để 2 thiết bị thấy thay đổi của nhau
+  async function pollSync() {
+    if (!ghConfigGet()) return;
+    const raw = await storageGet(STORE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        habits = parsed.habits || [];
+        entries = parsed.entries || {};
+      } catch (e) {}
+    }
+    const notesRaw = await storageGet(NOTES_KEY);
+    const notesEl = document.getElementById("notesArea");
+    if (notesRaw != null && document.activeElement !== notesEl) {
+      notesEl.value = notesRaw;
+    }
+    render();
+  }
+  setInterval(pollSync, 25000);
 
   (async () => {
     await load();
