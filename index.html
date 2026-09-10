@@ -15,6 +15,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+<!-- Firebase Real-time SDKs (Giúp đồng bộ tức thì như index 3) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+
 <style>
   :root {
     --bg: #1C1F1A;
@@ -76,17 +81,7 @@
     font-size: 13px;
   }
   input[type="text"]:focus { outline: none; border-color: var(--accent); }
-  #syncForm input[type="text"], #syncForm input[type="password"] {
-    width: 100%;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px 12px;
-    color: var(--text);
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 13px;
-  }
-  #syncForm input:focus { outline: none; border-color: var(--accent); }
+  
   .add-btn {
     display: flex;
     align-items: center;
@@ -146,18 +141,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .del-btn {
-    background: none;
-    border: none;
-    color: var(--text-faint);
-    opacity: 0;
-    cursor: pointer;
-    padding: 2px;
-    display: flex;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-  }
-  .habit-name-cell:hover .del-btn { opacity: 1; }
 
   .cell {
     aspect-ratio: 1;
@@ -247,30 +230,6 @@
   textarea#notesArea::placeholder { color: var(--text-faint); }
 
   .footnote { font-size: 11px; color: var(--text-faint); text-align: center; line-height: 1.6; margin: 0; }
-  .warn-bar {
-    background: #3A2A22;
-    border: 1px solid #6B4230;
-    color: #E8AE8F;
-    font-size: 12px;
-    padding: 8px 12px;
-    border-radius: 4px;
-    margin-bottom: 14px;
-  }
-
-  .install-btn {
-    display: none;
-    align-items: center;
-    gap: 5px;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 4px;
-    padding: 6px 10px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-  }
 
   .cat-select {
     background: var(--surface);
@@ -322,7 +281,6 @@
     transition: opacity 0.15s, color 0.15s;
     flex-shrink: 0;
   }
-  .icon-btn.reminder-on { opacity: 1; color: var(--accent); }
   .habit-name-cell:hover .icon-btn { opacity: 1; }
 
   .reminder-row {
@@ -348,6 +306,19 @@
   .reminder-clear { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 2px; display: flex; }
   .best-streak { font-size: 10px; color: var(--text-faint); margin-left: 4px; }
 
+  /* CSS cho ĐỒNG BỘ MỚI (giống index 3) */
+  .sync-status-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+  .sync-led { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+  .sync-status-indicator.on .sync-led { background: var(--good); box-shadow: 0 0 6px var(--good); }
+  .sync-status-indicator.off .sync-led { background: var(--text-faint); }
+  
+  .sync-form-box {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+
   @media (max-width: 520px) {
     .grid-row { grid-template-columns: minmax(70px, 1.3fr) repeat(7, 1fr) 0.8fr; gap: 3px; }
     .habit-name { font-size: 11px; }
@@ -369,32 +340,36 @@
       </div>
     </header>
 
-    <button class="install-btn" id="installBtn">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
-      Cài đặt app
-    </button>
-
+    <!-- Khung Đồng Bộ Mới Mượt Mà Nhờ Firebase -->
     <div class="card" id="syncCard">
       <div class="notes-header">
-        <div class="chart-title" style="margin-bottom:0;">ĐỒNG BỘ NHIỀU THIẾT BỊ (QUA GITHUB)</div>
-        <button class="add-btn" id="syncToggleBtn" style="padding:0 10px; height:26px;">Cài đặt</button>
+        <div class="chart-title" style="margin-bottom:0;">ĐỒNG BỘ THỜI GIAN THỰC (REALTIME)</div>
+        <button class="add-btn" id="syncToggleBtn" style="padding:0 10px; height:26px;">Cài đặt mã</button>
       </div>
-      <div id="syncStatus" style="font-size:11px; color:var(--text-dim); margin-bottom:8px;"></div>
-      <div id="syncForm" style="display:none;">
-        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
-          <input type="text" id="syncOwner" placeholder="Tên tài khoản GitHub (vd: LQL130)" />
-          <input type="text" id="syncRepo" placeholder="Tên repo (vd: C-n-)" />
-          <input type="password" id="syncToken" placeholder="Personal Access Token (github_pat_...)" />
+      
+      <div style="margin-top: 6px;">
+        <span class="sync-status-indicator off" id="syncStatus">
+          <span class="sync-led"></span>
+          <span id="syncStatusText">Chưa kết nối — chỉ lưu trên thiết bị này</span>
+        </span>
+      </div>
+
+      <div id="syncForm" style="display:none; margin-top:12px;">
+        <div id="syncDisconnectedView">
+          <p class="footnote" style="text-align:left; margin-bottom:8px;">Nhập <strong>Mã đồng bộ</strong> bất kỳ (vd: <code>kyluat-2026</code>) trên tất cả các thiết bị để dùng chung dữ liệu tức thì.</p>
+          <div class="sync-form-box">
+            <input type="text" id="syncCodeInput" placeholder="Nhập mã đồng bộ tự đặt..." />
+            <button class="add-btn" id="syncConnectBtn">Kết nối ngay</button>
+          </div>
         </div>
-        <div style="display:flex; gap:8px;">
-          <button class="add-btn" id="syncSaveBtn">Kết nối</button>
-          <button class="add-btn" id="syncClearBtn" style="border-color:var(--danger); color:var(--danger);">Ngắt kết nối</button>
+        <div id="syncConnectedView" style="display:none;">
+          <p class="footnote" style="text-align:left; margin-bottom:8px; color:var(--good);">
+            Đang đồng bộ trực tiếp với mã: <strong id="syncCodeDisplay" style="color:var(--accent);"></strong>
+          </p>
+          <button class="add-btn" id="syncDisconnectBtn" style="border-color:var(--danger); color:var(--danger);">Ngắt kết nối</button>
         </div>
-        <p class="footnote" style="margin-top:8px;">Token chỉ lưu trên trình duyệt này, dùng để đọc/ghi 1 file dữ liệu trong repo của bạn. Nhập cùng thông tin này ở mọi thiết bị muốn đồng bộ.</p>
       </div>
     </div>
-
-    <div id="warnBar" class="warn-bar" style="display:none;">Không thể lưu dữ liệu trên trình duyệt này.</div>
 
     <div class="add-row">
       <input type="text" id="newHabitInput" placeholder="Thêm thói quen hoặc công việc cần rèn luyện..." />
@@ -453,7 +428,7 @@
       <div class="card">
         <div class="chart-title">Số ngày hoàn thành theo thói quen</div>
         <div class="chart-wrap" id="chartWrap">
-          <canvas id="habitChart" role="img" aria-label="Biểu đồ cột so sánh số ngày hoàn thành mỗi thói quen giữa tuần này và tuần trước"></canvas>
+          <canvas id="habitChart" role="img" aria-label="Biểu đồ cột so sánh số ngày hoàn thành mỗi thói quen"></canvas>
         </div>
         <div class="legend">
           <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>Tuần này</span>
@@ -461,14 +436,46 @@
         </div>
       </div>
 
-      <p class="footnote">Lưới điểm danh tự làm mới vào mỗi thứ Hai. Dữ liệu các tuần cũ vẫn được lưu lại để so sánh và theo dõi xu hướng.</p>
+      <p class="footnote">Lưới điểm danh tự làm mới vào mỗi thứ Hai. Dữ liệu được đồng bộ ngay lập tức khi chọn.</p>
     </div>
   </div>
 
 <script>
+  // ============================================================
+  // CẤU HÌNH FIREBASE (Dùng chung cấu hình Realtime Firebase)
+  // ============================================================
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAma5_BgRJk8pXpDhw6mKum_W2KMyjtIcU",
+    authDomain: "soquy-330a0.firebaseapp.com",
+    projectId: "soquy-330a0",
+    storageBucket: "soquy-330a0.firebasestorage.app",
+    messagingSenderId: "1074989524520",
+    appId: "1:1074989524520:web:c7f58c2c9b910a319c371d"
+  };
+  const SYNC_ENABLED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+  const SYNC_COLLECTION = 'disciplineSync';
+  const SYNC_CODE_KEY = 'discipline-sync-code-v1';
+  const LOCAL_STORE_KEY = "discipline-log-v1";
+
+  let db = null;
+  let unsubscribe = null;
+  let syncCode = null;
+  let applyingRemote = false;
+  let writeTimer = null;
+
+  if (SYNC_ENABLED) {
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.firestore();
+      db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    } catch(e) {
+      console.error('Không khởi tạo được Firebase:', e);
+      db = null;
+    }
+  }
+
+  // --- STATE DỮ LIỆU ---
   const DAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-  const STORE_KEY = "discipline-log-v1";
-  const NOTES_KEY = "discipline-notes-v1";
   const CATEGORIES = {
     suckhoe:  { label: "Sức khỏe",  color: "#B7C97A" },
     congviec: { label: "Công việc", color: "#C9A227" },
@@ -476,97 +483,53 @@
     taichinh: { label: "Tài chính", color: "#D9A366" },
     khac:     { label: "Khác",      color: "#A6A896" }
   };
-  let habits = [];
-  let entries = {};
+
+  let state = {
+    habits: [],
+    entries: {},
+    notes: ""
+  };
+
   let chart = null;
   let activeFilter = "all";
   let editingHabitId = null;
   const notifiedToday = new Set();
 
-  // ---- Đồng bộ qua GitHub (dùng chính repo của bạn làm nơi lưu dữ liệu chung) ----
-  const GH_CONFIG_KEY = "gh-sync-config";
-  const ghShaCache = {};
-  function ghConfigGet() {
+  function loadLocal() {
     try {
-      const raw = localStorage.getItem(GH_CONFIG_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
-  }
-  function ghConfigSet(cfg) {
-    try { localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) {}
-  }
-  function ghConfigClear() {
-    try { localStorage.removeItem(GH_CONFIG_KEY); } catch (e) {}
-  }
-  function ghHeaders(cfg) {
-    return {
-      Authorization: `Bearer ${cfg.token}`,
-      Accept: "application/vnd.github+json"
-    };
-  }
-  async function ghGet(key) {
-    const cfg = ghConfigGet();
-    if (!cfg) return null;
-    const path = `sync-data/${key}.json`;
-    try {
-      const res = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}`, { headers: ghHeaders(cfg) });
-      if (res.status === 404) { ghShaCache[key] = null; return null; }
-      if (!res.ok) return null;
-      const json = await res.json();
-      ghShaCache[key] = json.sha;
-      return decodeURIComponent(escape(atob(json.content.replace(/\n/g, ""))));
-    } catch (e) { return null; }
-  }
-  async function ghPut(key, value) {
-    const cfg = ghConfigGet();
-    if (!cfg) return false;
-    const path = `sync-data/${key}.json`;
-    const encoded = btoa(unescape(encodeURIComponent(value)));
-    const doPut = async (sha) => {
-      const body = { message: `cập nhật ${key}`, content: encoded, branch: cfg.branch || "main" };
-      if (sha) body.sha = sha;
-      return fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}`, {
-        method: "PUT",
-        headers: { ...ghHeaders(cfg), "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-    };
-    try {
-      let res = await doPut(ghShaCache[key]);
-      if (res.status === 409 || res.status === 422) {
-        await ghGet(key);
-        res = await doPut(ghShaCache[key]);
+      const raw = localStorage.getItem(LOCAL_STORE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        state.habits = parsed.habits || [];
+        state.entries = parsed.entries || {};
+        state.notes = parsed.notes || "";
       }
-      if (!res.ok) return false;
-      const j = await res.json();
-      ghShaCache[key] = j.content.sha;
-      return true;
-    } catch (e) { return false; }
+    } catch(e) {}
   }
 
-  // Lưu qua GitHub nếu đã kết nối > window.storage khi chạy trong Claude > localStorage khi chạy độc lập.
-  const hasCloudStorage = typeof window.storage !== "undefined";
-  async function storageGet(key) {
-    if (ghConfigGet()) return ghGet(key);
-    if (hasCloudStorage) {
-      try {
-        const r = await window.storage.get(key, false);
-        return r ? r.value : null;
-      } catch (e) { return null; }
-    }
-    try { return localStorage.getItem(key); } catch (e) { return null; }
-  }
-  async function storageSet(key, value) {
-    if (ghConfigGet()) return ghPut(key, value);
-    if (hasCloudStorage) {
-      try {
-        const r = await window.storage.set(key, value, false);
-        return !!r;
-      } catch (e) { return false; }
-    }
-    try { localStorage.setItem(key, value); return true; } catch (e) { return false; }
+  function saveLocal() {
+    try {
+      localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify(state));
+    } catch(e) {}
   }
 
+  // Đẩy dữ liệu lên Cloud Firebase (Gửi thông minh chống lặp)
+  function persist() {
+    saveLocal();
+    if (db && syncCode && !applyingRemote) {
+      clearTimeout(writeTimer);
+      writeTimer = setTimeout(() => {
+        db.collection(SYNC_COLLECTION).doc(syncCode).set({
+          habits: state.habits,
+          entries: state.entries,
+          notes: state.notes,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(err => console.error('Lỗi khi đồng bộ:', err));
+      }, 200);
+    }
+  }
+
+  // Helper Ngày tháng
   function toKey(d) {
     const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,"0"), day = String(d.getDate()).padStart(2,"0");
     return `${y}-${m}-${day}`;
@@ -601,59 +564,9 @@
   const thisWeekDates = weekDates(thisMonday);
   const lastWeekDates = weekDates(lastMonday);
 
-  async function load() {
-    const raw = await storageGet(STORE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        habits = parsed.habits || [];
-        entries = parsed.entries || {};
-      } catch (e) { /* dữ liệu lỗi, bắt đầu mới */ }
-    }
-    const notesRaw = await storageGet(NOTES_KEY);
-    if (notesRaw != null) {
-      document.getElementById("notesArea").value = notesRaw;
-    }
-    if (!hasCloudStorage && !ghConfigGet()) {
-      const warn = document.getElementById("warnBar");
-      warn.textContent = "Chưa kết nối đồng bộ: dữ liệu chỉ lưu trên máy này. Cài đặt đồng bộ qua GitHub ở khung phía trên để dùng chung nhiều thiết bị.";
-      warn.style.display = "block";
-    } else {
-      document.getElementById("warnBar").style.display = "none";
-    }
-  }
-  async function save() {
-    const ok = await storageSet(STORE_KEY, JSON.stringify({ habits, entries }));
-    if (hasCloudStorage || ghConfigGet()) {
-      const warn = document.getElementById("warnBar");
-      if (!ok) {
-        warn.textContent = "Lỗi khi lưu — kiểm tra lại kết nối mạng hoặc token GitHub.";
-        warn.style.display = "block";
-      } else {
-        warn.style.display = "none";
-      }
-    }
-  }
-
-  let notesSaveTimer = null;
-  function scheduleSaveNotes() {
-    const statusEl = document.getElementById("notesStatus");
-    statusEl.textContent = "Đang lưu...";
-    statusEl.style.color = "var(--text-faint)";
-    clearTimeout(notesSaveTimer);
-    notesSaveTimer = setTimeout(saveNotes, 500);
-  }
-  async function saveNotes() {
-    const statusEl = document.getElementById("notesStatus");
-    const val = document.getElementById("notesArea").value;
-    const ok = await storageSet(NOTES_KEY, val);
-    statusEl.textContent = ok ? "Đã lưu ✓" : "Lỗi khi lưu";
-    statusEl.style.color = ok ? "var(--good)" : "var(--danger)";
-    if (ok) setTimeout(() => { statusEl.textContent = ""; }, 1500);
-  }
-
+  // --- THAO TÁC THÓI QUEN ---
   function isChecked(habitId, dateKey) {
-    return !!(entries[dateKey] && entries[dateKey][habitId]);
+    return !!(state.entries[dateKey] && state.entries[dateKey][habitId]);
   }
   function countInWeek(habitId, dates) {
     return dates.reduce((acc,d) => acc + (isChecked(habitId, toKey(d)) ? 1 : 0), 0);
@@ -678,8 +591,8 @@
   }
 
   function bestStreakEver(habitId) {
-    const dates = Object.keys(entries)
-      .filter(k => entries[k] && entries[k][habitId])
+    const dates = Object.keys(state.entries)
+      .filter(k => state.entries[k] && state.entries[k][habitId])
       .sort();
     if (!dates.length) return 0;
     let best = 1, cur = 1;
@@ -696,52 +609,58 @@
     const catSelect = document.getElementById("newHabitCategory");
     const name = input.value.trim();
     if (!name) return;
-    habits.push({ id: uid(), name, createdAt: todayKey, category: catSelect.value, reminderTime: null });
+    state.habits.push({ id: uid(), name, createdAt: todayKey, category: catSelect.value, reminderTime: null });
     input.value = "";
-    save();
+    persist();
     render();
   }
   function removeHabit(id) {
-    habits = habits.filter(h => h.id !== id);
-    if (activeFilter !== "all" && !habits.some(h => h.category === activeFilter)) activeFilter = "all";
-    save();
+    state.habits = state.habits.filter(h => h.id !== id);
+    if (activeFilter !== "all" && !state.habits.some(h => h.category === activeFilter)) activeFilter = "all";
+    persist();
     render();
   }
   function renameHabit(id, newName) {
-    const h = habits.find(h => h.id === id);
+    const h = state.habits.find(h => h.id === id);
     if (h && newName.trim()) h.name = newName.trim();
     editingHabitId = null;
-    save();
+    persist();
     render();
   }
   function setReminder(id, time) {
-    const h = habits.find(h => h.id === id);
+    const h = state.habits.find(h => h.id === id);
     if (h) h.reminderTime = time || null;
-    save();
+    persist();
     render();
   }
   function toggleEntry(habitId, dateKey) {
     const dObj = new Date(dateKey);
     if (dObj > today) return;
-    if (!entries[dateKey]) entries[dateKey] = {};
-    entries[dateKey][habitId] = !entries[dateKey][habitId];
-    save();
+    if (!state.entries[dateKey]) state.entries[dateKey] = {};
+    state.entries[dateKey][habitId] = !state.entries[dateKey][habitId];
+    persist();
     render();
   }
 
   const checkSvg = `<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 12L13 4" stroke="#1C1F1A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+  // --- RENDER GIAO DIỆN ---
   function render() {
     document.getElementById("weekRange").textContent = formatRange(thisMonday);
     document.getElementById("lastWeekRange").textContent = formatRange(lastMonday);
 
-    const hasHabits = habits.length > 0;
+    const notesArea = document.getElementById("notesArea");
+    if (document.activeElement !== notesArea) {
+      notesArea.value = state.notes || "";
+    }
+
+    const hasHabits = state.habits.length > 0;
     document.getElementById("emptyState").style.display = hasHabits ? "none" : "block";
     document.getElementById("mainContent").style.display = hasHabits ? "block" : "none";
     if (!hasHabits) return;
 
-    // filter tabs (chỉ hiện danh mục đang thực sự dùng)
-    const usedCats = [...new Set(habits.map(h => h.category).filter(c => CATEGORIES[c]))];
+    // Filter Tabs
+    const usedCats = [...new Set(state.habits.map(h => h.category).filter(c => CATEGORIES[c]))];
     const filterTabs = document.getElementById("filterTabs");
     if (usedCats.length > 1) {
       filterTabs.style.display = "flex";
@@ -762,9 +681,9 @@
       filterTabs.style.display = "none";
       activeFilter = "all";
     }
-    const viewHabits = activeFilter === "all" ? habits : habits.filter(h => h.category === activeFilter);
+    const viewHabits = activeFilter === "all" ? state.habits : state.habits.filter(h => h.category === activeFilter);
 
-    // grid head
+    // Grid Head
     const gridHead = document.getElementById("gridHead");
     gridHead.innerHTML = "";
     const nameHead = document.createElement("div");
@@ -780,7 +699,7 @@
     streakHead.textContent = "CHUỖI";
     gridHead.appendChild(streakHead);
 
-    // rows
+    // Habit Rows
     const rowsWrap = document.getElementById("habitRows");
     rowsWrap.innerHTML = "";
     viewHabits.forEach(h => {
@@ -864,10 +783,10 @@
       rowsWrap.appendChild(row);
     });
 
-    // nhắc nhở
+    // Reminders
     const reminderList = document.getElementById("reminderList");
     reminderList.innerHTML = "";
-    habits.forEach(h => {
+    state.habits.forEach(h => {
       const row = document.createElement("div");
       row.className = "reminder-row";
       const nameEl = document.createElement("span");
@@ -888,7 +807,7 @@
       reminderList.appendChild(row);
     });
 
-    // stats (theo danh mục đang lọc)
+    // Stats
     const habitsForStats = viewHabits;
     const daysElapsed = thisWeekDates.filter(d => d <= today).length || 1;
     const overallPct = (dates, capDays) => {
@@ -910,7 +829,7 @@
     deltaEl.innerHTML = `<span style="color:${color}">${arrow} ${delta > 0 ? "+" : ""}${delta}%</span>`;
     deltaCard.style.borderColor = delta > 0 ? "#4C5A2E" : delta < 0 ? "#5A3A2E" : "var(--border)";
 
-    // chart
+    // Chart
     const labels = viewHabits.map(h => h.name.length > 14 ? h.name.slice(0,13) + "…" : h.name);
     const thisData = viewHabits.map(h => countInWeek(h.id, thisWeekDates));
     const lastData = viewHabits.map(h => countInWeek(h.id, lastWeekDates));
@@ -932,25 +851,113 @@
         indexAxis: "y",
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: {
-          backgroundColor: "#242821",
-          borderColor: "#3A3F33",
-          borderWidth: 1,
-          titleColor: "#EDE8DD",
-          bodyColor: "#EDE8DD",
-          titleFont: { family: "IBM Plex Mono" },
-          bodyFont: { family: "IBM Plex Mono" },
-          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw} ngày` }
-        }},
+        plugins: { legend: { display: false } },
         scales: {
-          x: { min: 0, max: 7, ticks: { color: "#A6A896", font: { family: "IBM Plex Mono", size: 11 } }, grid: { color: "#3A3F33" } },
-          y: { ticks: { color: "#EDE8DD", font: { family: "IBM Plex Mono", size: 12 } }, grid: { display: false } }
+          x: { min: 0, max: 7, ticks: { color: "#A6A896" }, grid: { color: "#3A3F33" } },
+          y: { ticks: { color: "#EDE8DD" }, grid: { display: false } }
         }
       }
     });
   }
 
-  // điền danh sách danh mục vào ô chọn khi thêm thói quen
+  // --- XỬ LÝ GHI CHÚ ---
+  let notesSaveTimer = null;
+  document.getElementById("notesArea").addEventListener("input", (e) => {
+    state.notes = e.target.value;
+    const statusEl = document.getElementById("notesStatus");
+    statusEl.textContent = "Đang lưu...";
+    statusEl.style.color = "var(--text-faint)";
+    clearTimeout(notesSaveTimer);
+    notesSaveTimer = setTimeout(() => {
+      persist();
+      statusEl.textContent = "Đã lưu ✓";
+      statusEl.style.color = "var(--good)";
+      setTimeout(() => { statusEl.textContent = ""; }, 1500);
+    }, 400);
+  });
+
+  // --- ĐỒNG BỘ REALTIME TƯƠNG TỰ INDEX 3 ---
+  function updateSyncUI() {
+    const statusEl = document.getElementById("syncStatus");
+    const statusText = document.getElementById("syncStatusText");
+    const discView = document.getElementById("syncDisconnectedView");
+    const connView = document.getElementById("syncConnectedView");
+
+    if (syncCode) {
+      statusEl.className = "sync-status-indicator on";
+      statusText.textContent = `Đã đồng bộ thời gian thực · ${syncCode}`;
+      discView.style.display = "none";
+      connView.style.display = "block";
+      document.getElementById("syncCodeDisplay").textContent = syncCode;
+    } else {
+      statusEl.className = "sync-status-indicator off";
+      statusText.textContent = "Chưa kết nối — dữ liệu chỉ lưu trên thiết bị này";
+      discView.style.display = "block";
+      connView.style.display = "none";
+    }
+  }
+
+  function connectSync(code) {
+    if (!db) return;
+    const clean = code.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-_]/g, '');
+    if (!clean) return;
+
+    if (unsubscribe) unsubscribe();
+    syncCode = clean;
+    localStorage.setItem(SYNC_CODE_KEY, syncCode);
+    updateSyncUI();
+
+    const docRef = db.collection(SYNC_COLLECTION).doc(syncCode);
+    unsubscribe = docRef.onSnapshot(snap => {
+      if (snap.metadata.hasPendingWrites) return; // Bỏ qua thay đổi từ chính máy này
+      if (snap.exists) {
+        const data = snap.data();
+        applyingRemote = true;
+        state.habits = Array.isArray(data.habits) ? data.habits : [];
+        state.entries = data.entries || {};
+        state.notes = data.notes || "";
+        saveLocal();
+        render();
+        applyingRemote = false;
+      } else {
+        // Tạo mới dữ liệu trên cloud nếu mã chưa tồn tại
+        docRef.set({
+          habits: state.habits,
+          entries: state.entries,
+          notes: state.notes,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    }, err => console.error("Lỗi đồng bộ Realtime:", err));
+  }
+
+  function disconnectSync() {
+    if (unsubscribe) unsubscribe();
+    unsubscribe = null;
+    syncCode = null;
+    localStorage.removeItem(SYNC_CODE_KEY);
+    updateSyncUI();
+  }
+
+  // --- ĐĂNG KÝ SỰ KIỆN SYNC ---
+  document.getElementById("syncToggleBtn").onclick = () => {
+    const form = document.getElementById("syncForm");
+    form.style.display = form.style.display === "none" ? "block" : "none";
+  };
+  document.getElementById("syncConnectBtn").onclick = () => {
+    const val = document.getElementById("syncCodeInput").value;
+    connectSync(val);
+    document.getElementById("syncCodeInput").value = "";
+  };
+  document.getElementById("syncCodeInput").onkeydown = (e) => {
+    if (e.key === "Enter") {
+      connectSync(e.target.value);
+      e.target.value = "";
+    }
+  };
+  document.getElementById("syncDisconnectBtn").onclick = disconnectSync;
+
+  // Init Danh mục
   const catSelect = document.getElementById("newHabitCategory");
   Object.entries(CATEGORIES).forEach(([key, c]) => {
     const opt = document.createElement("option");
@@ -960,142 +967,17 @@
   });
 
   document.getElementById("addBtn").onclick = addHabit;
-  document.getElementById("newHabitInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") addHabit();
-  });
-  document.getElementById("notesArea").addEventListener("input", scheduleSaveNotes);
+  document.getElementById("newHabitInput").onkeydown = (e) => { if (e.key === "Enter") addHabit(); };
 
-  // nhắc nhở: xin quyền thông báo trình duyệt
-  const notifBtn = document.getElementById("notifPermBtn");
-  function refreshNotifBtn() {
-    if (!("Notification" in window)) { notifBtn.style.display = "none"; return; }
-    if (Notification.permission === "granted") {
-      notifBtn.textContent = "🔔 Đã bật thông báo";
-      notifBtn.disabled = true;
-    } else {
-      notifBtn.textContent = "🔔 Bật thông báo";
-      notifBtn.disabled = false;
-    }
+  // Khởi chạy
+  loadLocal();
+  render();
+  updateSyncUI();
+
+  const savedSyncCode = localStorage.getItem(SYNC_CODE_KEY);
+  if (SYNC_ENABLED && savedSyncCode) {
+    connectSync(savedSyncCode);
   }
-  notifBtn.onclick = async () => {
-    if (!("Notification" in window)) return;
-    await Notification.requestPermission();
-    refreshNotifBtn();
-  };
-  refreshNotifBtn();
-
-  // kiểm tra nhắc nhở mỗi 30 giây khi app đang mở
-  // (nhắc nhở chỉ hoạt động khi tab/app đang mở; thông báo đẩy thật cần máy chủ riêng)
-  function checkReminders() {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    const now = new Date();
-    const nowKey = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-    habits.forEach(h => {
-      if (!h.reminderTime || h.reminderTime !== nowKey) return;
-      if (isChecked(h.id, todayKey)) return;
-      const fireKey = h.id + "_" + todayKey;
-      if (notifiedToday.has(fireKey)) return;
-      notifiedToday.add(fireKey);
-      new Notification("Nhắc nhở thói quen", { body: `Đừng quên: ${h.name}`, icon: "icon-192.png" });
-    });
-  }
-  setInterval(checkReminders, 30000);
-
-  // cài đặt như app (PWA) — chỉ hoạt động khi trang được lưu trữ thật (https),
-  // không hiện được khi mở trực tiếp bên trong Claude
-  let deferredInstallPrompt;
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    deferredInstallPrompt = e;
-    document.getElementById("installBtn").style.display = "inline-flex";
-  });
-  document.getElementById("installBtn").onclick = async () => {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    document.getElementById("installBtn").style.display = "none";
-  };
-
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("service-worker.js").catch(() => { /* bỏ qua nếu không hỗ trợ */ });
-    });
-  }
-
-  // ---- Điều khiển form đồng bộ GitHub ----
-  const syncForm = document.getElementById("syncForm");
-  const syncStatus = document.getElementById("syncStatus");
-  const syncToggleBtn = document.getElementById("syncToggleBtn");
-  function refreshSyncStatus() {
-    const cfg = ghConfigGet();
-    if (cfg) {
-      syncStatus.innerHTML = `<span style="color:var(--good)">● Đã kết nối</span> — ${cfg.owner}/${cfg.repo}`;
-      syncToggleBtn.textContent = "Sửa";
-      document.getElementById("syncOwner").value = cfg.owner;
-      document.getElementById("syncRepo").value = cfg.repo;
-    } else {
-      syncStatus.innerHTML = `<span style="color:var(--text-faint)">● Chưa kết nối</span> — dữ liệu chỉ lưu trên máy này`;
-      syncToggleBtn.textContent = "Cài đặt";
-    }
-  }
-  syncToggleBtn.onclick = () => {
-    syncForm.style.display = syncForm.style.display === "none" ? "block" : "none";
-  };
-  document.getElementById("syncSaveBtn").onclick = async () => {
-    const owner = document.getElementById("syncOwner").value.trim();
-    const repo = document.getElementById("syncRepo").value.trim();
-    const token = document.getElementById("syncToken").value.trim();
-    if (!owner || !repo || !token) { syncStatus.textContent = "Điền đủ 3 ô ở trên trước đã."; return; }
-    syncStatus.textContent = "Đang kiểm tra kết nối...";
-    ghConfigSet({ owner, repo, token, branch: "main" });
-    const testRead = await ghGet(STORE_KEY);
-    // ghGet trả null cả khi lỗi lẫn khi file chưa tồn tại (404) — thử ghi thử để phân biệt
-    const testWrite = await storageSet(STORE_KEY, JSON.stringify({ habits, entries }));
-    if (!testWrite) {
-      syncStatus.innerHTML = `<span style="color:var(--danger)">Kết nối thất bại</span> — kiểm tra lại tên tài khoản, repo và token.`;
-      ghConfigClear();
-      return;
-    }
-    await storageSet(NOTES_KEY, document.getElementById("notesArea").value);
-    document.getElementById("syncToken").value = "";
-    syncForm.style.display = "none";
-    refreshSyncStatus();
-    await load();
-    render();
-  };
-  document.getElementById("syncClearBtn").onclick = () => {
-    ghConfigClear();
-    document.getElementById("syncToken").value = "";
-    refreshSyncStatus();
-    render();
-  };
-  refreshSyncStatus();
-
-  // tự lấy dữ liệu mới nhất mỗi 25 giây khi đã kết nối GitHub, để 2 thiết bị thấy thay đổi của nhau
-  async function pollSync() {
-    if (!ghConfigGet()) return;
-    const raw = await storageGet(STORE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        habits = parsed.habits || [];
-        entries = parsed.entries || {};
-      } catch (e) {}
-    }
-    const notesRaw = await storageGet(NOTES_KEY);
-    const notesEl = document.getElementById("notesArea");
-    if (notesRaw != null && document.activeElement !== notesEl) {
-      notesEl.value = notesRaw;
-    }
-    render();
-  }
-  setInterval(pollSync, 25000);
-
-  (async () => {
-    await load();
-    render();
-  })();
 </script>
 </body>
 </html>
